@@ -640,8 +640,10 @@ def main():
 
     choice = input("Enter 1 to Record (Webcam) or 2 to Upload Video: ")
 
+    is_live = False
     if choice == "1":
         cap = get_stream(0)
+        is_live = True
     elif choice == "2":
         path = input("Enter video path: ")
         cap = get_stream(path)
@@ -649,7 +651,7 @@ def main():
         print("Invalid choice.")
         return
 
-    fps_validation = validate_fps_and_duration(cap)
+    fps_validation = validate_fps_and_duration(cap, is_live=is_live)
 
     if not fps_validation["valid"]:
         print("\n❌ FPS / Duration validation failed")
@@ -673,8 +675,10 @@ def main():
 
     signal = []
     frame_count = 0
+    no_face_streak = 0
+    min_signal_needed = int(fps * 20)
 
-    print("\nProcessing stream...\n")
+    print("\n📹 Recording... Please look at the camera and stay still.\n")
 
     while cap.isOpened() and frame_count < TOTAL_FRAMES:
 
@@ -705,16 +709,30 @@ def main():
         valid_face, landmarks = face_validator.validate(frame)
 
         if valid_face:
+            no_face_streak = 0
             roi = extract_roi(frame, landmarks)
             if roi.size != 0:
                 rgb_val = extract_rgb_means(roi)
                 if rgb_val is not None:
                     signal.append(rgb_val)
+        else:
+            no_face_streak += 1
+
+        # ---------- Progress Feedback ----------
+        if frame_count % 30 == 0:
+            pct = int(frame_count / TOTAL_FRAMES * 100)
+            face_status = "✅ Face OK" if no_face_streak == 0 else f"⚠️ No face ({no_face_streak} frames)"
+            print(f"  [{pct:3d}%] Frame {frame_count}/{TOTAL_FRAMES} | Signal: {len(signal)}/{min_signal_needed} | {face_status}")
+
+        if no_face_streak == 60:
+            print("\n  ⚠️  Face not detected for 2 seconds — please center your face in the camera\n")
 
     cap.release()
 
-    if len(signal) < int(fps * 20):
-        print("\n❌ Not enough signal for final estimation")
+    if len(signal) < min_signal_needed:
+        print(f"\n❌ Not enough signal for final estimation")
+        print(f"   Collected: {len(signal)} samples | Needed: {min_signal_needed}")
+        print(f"   Tip: Ensure good lighting, face the camera directly, and stay still for the full recording.")
         return
 
     signal_array = np.array(signal)
